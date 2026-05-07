@@ -1,0 +1,34 @@
+# Build directories
+build/
+cmake-build-*/
+dist/
+*.zip
+
+# CMake generated
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+
+# Qt generated
+moc_*.cpp
+qrc_*.cpp
+ui_*.h
+*.pro.user
+
+# macOS
+.DS_Store
+__MACOSX/
+
+# Visual Studio
+*.suo
+*.user
+*.VC.db
+.vs/
+out/
+x64/
+Release/
+Debug/
+
+# CLion
+.idea/
