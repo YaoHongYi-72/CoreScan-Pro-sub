@@ -2,7 +2,6 @@
 #include <QMainWindow>
 #include <QFutureWatcher>
 #include "spectrallibrary.h"
-#include "spectralanalyzer.h"
 #include "envidataset.h"
 
 QT_BEGIN_NAMESPACE
@@ -18,9 +17,9 @@ QT_END_NAMESPACE
 
 // Result from async ENVI pixel analysis
 struct PixelMatchResult {
-    std::vector<SpectralAnalyzer::MatchResult> matches;
-    std::vector<double> spectrum;
-    std::vector<double> wavelengths;
+    QVector<AnalysisDisplayEntry> matches;
+    QVector<double> spectrum;
+    QVector<double> wavelengths;
     QString error;
 };
 
@@ -57,9 +56,9 @@ private:
     void setupSpectrumTab();
     void setupLibraryPanel();
     void updateStatusBar(const QString& msg);
-    void showMatchResults(const std::vector<SpectralAnalyzer::MatchResult>& matches,
-                          const std::vector<double>& wl,
-                          const std::vector<double>& spectrum);
+    void showMatchResults(const QVector<AnalysisDisplayEntry>& matches,
+                          const QVector<double>& wl,
+                          const QVector<double>& spectrum);
     void plotSpectrum(const std::vector<double>& wl,
                       const std::vector<double>& vals,
                       const QString& label);
@@ -67,7 +66,6 @@ private:
 
     // Data
     std::unique_ptr<ENVIDataset> m_dataset;
-    SpectralAnalyzer              m_analyzer;
     std::vector<double>           m_importedWl;
     std::vector<double>           m_importedVals;
     QString                       m_importedLabel;
@@ -95,7 +93,7 @@ private:
     QLabel*      m_libraryStatus = nullptr;
 
     // Last match results (for overlay on demand)
-    std::vector<SpectralAnalyzer::MatchResult> m_lastMatches;
-    std::vector<double> m_lastWl;
-    std::vector<double> m_lastSpectrum;
+    QVector<AnalysisDisplayEntry> m_lastMatches;
+    QVector<double> m_lastWl;
+    QVector<double> m_lastSpectrum;
 };

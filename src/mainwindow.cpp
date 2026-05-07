@@ -1,6 +1,5 @@
 #include "mainwindow.h"
 #include "spectrallibrary.h"
-#include "spectralanalyzer.h"
 #include "spectrumdialog.h"
 #include "envidataset.h"
 
@@ -393,10 +392,10 @@ void MainWindow::onEnviPixelClicked(int sample, int line)
 
     auto future = QtConcurrent::run([wls, raw, this]() -> PixelMatchResult {
         PixelMatchResult res;
-        res.wavelengths = wls;
-        res.spectrum.assign(raw.begin(), raw.end());
+        res.wavelengths = QVector<double>(wls.begin(), wls.end());
+        res.spectrum    = QVector<double>(raw.begin(), raw.end());
         try {
-            res.matches = m_analyzer.analyze(wls, res.spectrum);
+            res.matches = SpectralLibrary::instance().analyze(res.wavelengths, res.spectrum);
         } catch (const std::exception& ex) {
             res.error = QString::fromStdString(ex.what());
         }
@@ -432,10 +431,10 @@ void MainWindow::onAnalyzeImported()
 
     auto future = QtConcurrent::run([wls, vals, this]() -> PixelMatchResult {
         PixelMatchResult res;
-        res.wavelengths = wls;
-        res.spectrum    = vals;
+        res.wavelengths = QVector<double>(wls.begin(), wls.end());
+        res.spectrum    = QVector<double>(vals.begin(), vals.end());
         try {
-            res.matches = m_analyzer.analyze(wls, vals);
+            res.matches = SpectralLibrary::instance().analyze(res.wavelengths, res.spectrum);
         } catch (const std::exception& ex) {
             res.error = QString::fromStdString(ex.what());
         }
@@ -465,9 +464,9 @@ void MainWindow::onImportAnalysisFinished()
 // ---------- Shared result display ----------
 
 void MainWindow::showMatchResults(
-    const std::vector<SpectralAnalyzer::MatchResult>& matches,
-    const std::vector<double>& wl,
-    const std::vector<double>& spectrum)
+    const QVector<AnalysisDisplayEntry>& matches,
+    const QVector<double>& wl,
+    const QVector<double>& spectrum)
 {
     m_lastMatches  = matches;
     m_lastWl       = wl;
@@ -476,14 +475,14 @@ void MainWindow::showMatchResults(
     m_matchList->clear();
     for (const auto& m : matches) {
         auto* item = new QListWidgetItem(
-            QString("%1  |  Score: %2  |  SA: %3 rad")
-            .arg(QString::fromStdString(m.name))
-            .arg(m.score, 0, 'f', 1)
-            .arg(m.sa, 0, 'f', 4));
-        // Color-code by score
-        if      (m.score >= 80) item->setForeground(QColor("#50fa7b"));
-        else if (m.score >= 50) item->setForeground(QColor("#f1fa8c"));
-        else                    item->setForeground(QColor("#ff5555"));
+            QString("%1  |  Score: %2  |  Abundance: %3")
+            .arg(m.name)
+            .arg(m.confidenceScore, 0, 'f', 1)
+            .arg(m.abundance, 0, 'f', 4));
+        // Color-code by confidence score
+        if      (m.confidenceScore >= 80) item->setForeground(QColor("#50fa7b"));
+        else if (m.confidenceScore >= 50) item->setForeground(QColor("#f1fa8c"));
+        else                              item->setForeground(QColor("#ff5555"));
         m_matchList->addItem(item);
     }
 }
