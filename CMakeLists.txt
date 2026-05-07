@@ -37,7 +37,7 @@ if(NOT osqp_FOUND)
     find_library(OSQP_LIB NAMES osqp osqpstatic
                  HINTS ${CMAKE_SOURCE_DIR}/third_party/osqp/lib
                        ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/lib)
-    find_path(OSQP_INCLUDE_DIR NAMES osqp.h
+    find_path(OSQP_INCLUDE_DIR NAMES osqp/osqp.h osqp.h
               HINTS ${CMAKE_SOURCE_DIR}/third_party/osqp/include
                     ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include)
     if(OSQP_LIB AND OSQP_INCLUDE_DIR)
@@ -72,7 +72,10 @@ else()
     qt_add_executable(SpectralMatcher ${SOURCES})
 endif()
 
-target_include_directories(SpectralMatcher PRIVATE src)
+target_include_directories(SpectralMatcher PRIVATE
+    src
+    $<TARGET_PROPERTY:osqp::osqp,INTERFACE_INCLUDE_DIRECTORIES>
+)
 
 target_link_libraries(SpectralMatcher PRIVATE
     Qt6::Core
