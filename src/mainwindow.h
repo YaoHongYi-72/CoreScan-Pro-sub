@@ -59,15 +59,15 @@ private:
     void showMatchResults(const QVector<AnalysisDisplayEntry>& matches,
                           const QVector<double>& wl,
                           const QVector<double>& spectrum);
-    void plotSpectrum(const std::vector<double>& wl,
-                      const std::vector<double>& vals,
+    void plotSpectrum(const QVector<double>& wl,
+                      const QVector<double>& vals,
                       const QString& label);
     void clearPlot();
 
     // Data
-    std::unique_ptr<ENVIDataset> m_dataset;
-    std::vector<double>           m_importedWl;
-    std::vector<double>           m_importedVals;
+    std::unique_ptr<EnviDataset> m_dataset;
+    QVector<double>              m_importedWl;
+    QVector<double>              m_importedVals;
     QString                       m_importedLabel;
 
     // Async watchers

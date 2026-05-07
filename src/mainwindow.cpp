@@ -29,8 +29,8 @@
 // ---------- helpers ----------
 
 static bool parseSpectrumFile(const QString& path,
-                               std::vector<double>& outWl,
-                               std::vector<double>& outVals,
+                               QVector<double>& outWl,
+                               QVector<double>& outVals,
                                QString& outErr)
 {
     QFile f(path);
@@ -52,11 +52,11 @@ static bool parseSpectrumFile(const QString& path,
         bool okW, okV;
         double w = parts[0].trimmed().toDouble(&okW);
         double v = parts[1].trimmed().toDouble(&okV);
-        if (!okW || !okV) continue;  // skip header/label rows
-        outWl.push_back(w);
-        outVals.push_back(v);
+        if (!okW || !okV) continue;
+        outWl.append(w);
+        outVals.append(v);
     }
-    if (outWl.empty()) {
+    if (outWl.isEmpty()) {
         outErr = QObject::tr("No valid wavelength/reflectance pairs found in file.");
         return false;
     }
@@ -242,16 +242,19 @@ void MainWindow::onOpenEnvi()
     if (path.isEmpty()) return;
 
     try {
-        auto ds = std::make_unique<ENVIDataset>();
-        ds->open(path.toStdString());
+        auto ds = std::make_unique<EnviDataset>();
+        if (!ds->load(path)) {
+            QMessageBox::critical(this, tr("Open ENVI Error"), tr("Failed to load: %1").arg(path));
+            return;
+        }
         m_dataset = std::move(ds);
 
         m_bandCombo->blockSignals(true);
         m_bandCombo->clear();
-        const auto& meta = m_dataset->meta();
-        const auto& wls  = m_dataset->wavelengths();
+        const auto meta = m_dataset->meta();
+        const auto& wls = meta.wavelengths;
         for (int b = 0; b < meta.bands; ++b) {
-            QString label = (b < static_cast<int>(wls.size()))
+            QString label = (b < wls.size())
                 ? QString("%1 nm").arg(wls[b], 0, 'f', 1)
                 : QString("Band %1").arg(b + 1);
             m_bandCombo->addItem(label);
@@ -314,21 +317,22 @@ void MainWindow::onLoadLibrary()
         QApplication::processEvents();
         if (prog->wasCanceled()) break;
 
-        QString err;
-        if (lib.loadFile(paths[i]))
-            ++loaded;
+        if (paths[i].endsWith(".csv", Qt::CaseInsensitive))
+            loaded += lib.loadCSV(paths[i]) ? 1 : 0;
+        else
+            loaded += lib.loadUSGSTxt(paths[i]);
     }
     prog->setValue(paths.size());
     prog->deleteLater();
 
     // Refresh library list
     m_libraryList->clear();
-    const auto entries = lib.entries();
-    for (const auto& e : entries) {
-        m_libraryList->addItem(QString::fromStdString(e.name));
+    const auto& spectra = lib.spectra();
+    for (const auto& e : spectra) {
+        m_libraryList->addItem(e.name);
     }
-    m_libraryStatus->setText(tr("%1 spectra loaded").arg(entries.size()));
-    updateStatusBar(tr("Library: %1 reference spectra").arg(entries.size()));
+    m_libraryStatus->setText(tr("%1 spectra loaded").arg(spectra.size()));
+    updateStatusBar(tr("Library: %1 reference spectra").arg(spectra.size()));
 }
 
 void MainWindow::onAbout()
@@ -349,27 +353,7 @@ void MainWindow::onAbout()
 void MainWindow::onEnviBandChanged(int idx)
 {
     if (!m_dataset || idx < 0) return;
-    const auto& meta = m_dataset->meta();
-    // Build a greyscale QImage from the band
-    QImage img(meta.samples, meta.lines, QImage::Format_Grayscale8);
-    // Find min/max for stretching
-    float mn = std::numeric_limits<float>::max();
-    float mx = -mn;
-    for (int l = 0; l < meta.lines; ++l) {
-        for (int s = 0; s < meta.samples; ++s) {
-            float v = m_dataset->readPixel(s, l, idx);
-            if (std::isfinite(v)) { mn = std::min(mn, v); mx = std::max(mx, v); }
-        }
-    }
-    float rng = (mx > mn) ? (mx - mn) : 1.f;
-    for (int l = 0; l < meta.lines; ++l) {
-        uchar* row = img.scanLine(l);
-        for (int s = 0; s < meta.samples; ++s) {
-            float v = m_dataset->readPixel(s, l, idx);
-            row[s] = static_cast<uchar>(std::clamp((v - mn) / rng * 255.f, 0.f, 255.f));
-        }
-    }
-    // Scale to fit label
+    QImage img = m_dataset->getBandImage(idx);
     QSize maxSz = m_enviImage->size().isEmpty()
         ? QSize(800, 600) : m_enviImage->size();
     QPixmap pm = QPixmap::fromImage(img).scaled(maxSz, Qt::KeepAspectRatio, Qt::FastTransformation);
@@ -381,19 +365,15 @@ void MainWindow::onEnviPixelClicked(int sample, int line)
     if (!m_dataset) return;
     if (m_enviWatcher->isRunning()) return;
 
-    const auto& meta = m_dataset->meta();
     m_coordLabel->setText(tr("S:%1 L:%2 — analyzing...").arg(sample).arg(line));
 
-    // Capture values for the lambda
-    std::vector<double> wls = m_dataset->wavelengths();
-    std::vector<float> raw(meta.bands);
-    for (int b = 0; b < meta.bands; ++b)
-        raw[b] = m_dataset->readPixel(sample, line, b);
+    QVector<double> spectrum = m_dataset->getPixelSpectrum(sample, line);
+    QVector<double> wls      = m_dataset->meta().wavelengths;
 
-    auto future = QtConcurrent::run([wls, raw, this]() -> PixelMatchResult {
+    auto future = QtConcurrent::run([wls, spectrum, this]() -> PixelMatchResult {
         PixelMatchResult res;
-        res.wavelengths = QVector<double>(wls.begin(), wls.end());
-        res.spectrum    = QVector<double>(raw.begin(), raw.end());
+        res.wavelengths = wls;
+        res.spectrum    = spectrum;
         try {
             res.matches = SpectralLibrary::instance().analyze(res.wavelengths, res.spectrum);
         } catch (const std::exception& ex) {
@@ -420,19 +400,19 @@ void MainWindow::onEnviAnalysisFinished()
 
 void MainWindow::onAnalyzeImported()
 {
-    if (m_importedWl.empty()) return;
+    if (m_importedWl.isEmpty()) return;
     if (m_importWatcher->isRunning()) return;
 
     updateStatusBar(tr("Analyzing..."));
     m_analyzeBtn->setEnabled(false);
 
-    std::vector<double> wls  = m_importedWl;
-    std::vector<double> vals = m_importedVals;
+    QVector<double> wls  = QVector<double>(m_importedWl.begin(),  m_importedWl.end());
+    QVector<double> vals = QVector<double>(m_importedVals.begin(), m_importedVals.end());
 
     auto future = QtConcurrent::run([wls, vals, this]() -> PixelMatchResult {
         PixelMatchResult res;
-        res.wavelengths = QVector<double>(wls.begin(), wls.end());
-        res.spectrum    = QVector<double>(vals.begin(), vals.end());
+        res.wavelengths = wls;
+        res.spectrum    = vals;
         try {
             res.matches = SpectralLibrary::instance().analyze(res.wavelengths, res.spectrum);
         } catch (const std::exception& ex) {
@@ -455,7 +435,7 @@ void MainWindow::onImportAnalysisFinished()
     showMatchResults(res.matches, res.wavelengths, res.spectrum);
 
     // Open the SpectrumDialog for a rich visual
-    auto* dlg = new SpectrumDialog(res.wavelengths, res.spectrum, res.matches, this);
+    auto* dlg = new SpectrumDialog(0, 0, res.spectrum, res.wavelengths, res.matches, false, this);
     dlg->setWindowTitle(tr("Spectral Match — %1").arg(m_importedLabel));
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
@@ -490,8 +470,8 @@ void MainWindow::showMatchResults(
 void MainWindow::onMatchResultClicked(int row)
 {
     // Double-clicking a match row opens a SpectrumDialog focused on that mineral
-    if (row < 0 || m_lastWl.empty()) return;
-    auto* dlg = new SpectrumDialog(m_lastWl, m_lastSpectrum, m_lastMatches, this);
+    if (row < 0 || m_lastWl.isEmpty()) return;
+    auto* dlg = new SpectrumDialog(0, 0, m_lastSpectrum, m_lastWl, m_lastMatches, false, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }
@@ -501,8 +481,8 @@ void MainWindow::onLibraryItemDoubleClicked(int /*row*/)
     // reserved for future: show individual reference spectrum
 }
 
-void MainWindow::plotSpectrum(const std::vector<double>& /*wl*/,
-                               const std::vector<double>& /*vals*/,
+void MainWindow::plotSpectrum(const QVector<double>& /*wl*/,
+                               const QVector<double>& /*vals*/,
                                const QString& /*label*/)
 {
     // The rich chart is delegated to SpectrumDialog; nothing to do here.
