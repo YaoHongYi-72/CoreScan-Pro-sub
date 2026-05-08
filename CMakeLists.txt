@@ -74,7 +74,7 @@ endif()
 
 target_include_directories(SpectralMatcher PRIVATE
     src
-    $<TARGET_PROPERTY:osqp::osqp,INTERFACE_INCLUDE_DIRECTORIES>
+    ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include
 )
 
 target_link_libraries(SpectralMatcher PRIVATE
