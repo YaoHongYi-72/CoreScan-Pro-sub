@@ -72,7 +72,7 @@ jobs:
       shell: pwsh
 
     # ------------------------------------------------------------------ #
-    # 7. Package (windeployqt + zip)
+    # 7. Package (windeployqt + NSIS installer)
     # ------------------------------------------------------------------ #
     - name: Package
       run: |
@@ -85,28 +85,79 @@ jobs:
         Write-Host "windeployqt: $windeployqt"
         & $windeployqt --no-translations --no-system-d3d-compiler dist\SpectralMatcher.exe
 
-        # Compress
-        Compress-Archive -Path dist\* -DestinationPath SpectralMatcher-windows-x64.zip
+        # Copy vcpkg runtime DLLs (osqp, etc.)
+        $vcpkgBin = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin"
+        if (Test-Path $vcpkgBin) {
+          Copy-Item "$vcpkgBin\*.dll" dist\ -ErrorAction SilentlyContinue
+        }
+
+        # Copy MSVC runtime DLLs
+        $msvcRedist = (Get-ChildItem "$env:VCToolsRedistDir\x64\Microsoft.VC*.CRT" -ErrorAction SilentlyContinue | Select-Object -First 1)?.FullName
+        if ($msvcRedist) {
+          Copy-Item "$msvcRedist\*.dll" dist\ -ErrorAction SilentlyContinue
+        }
       shell: pwsh
 
     # ------------------------------------------------------------------ #
-    # 8. Upload artifact (for every build)
+    # 8. Create NSIS installer
+    # ------------------------------------------------------------------ #
+    - name: Create NSIS installer
+      run: |
+        # Write NSIS script
+        $nsis = @'
+        !include "MUI2.nsh"
+        Name "SpectralMatcher"
+        OutFile "SpectralMatcher-Setup.exe"
+        InstallDir "$PROGRAMFILES64\SpectralMatcher"
+        InstallDirRegKey HKLM "Software\SpectralMatcher" ""
+        RequestExecutionLevel admin
+
+        !insertmacro MUI_PAGE_WELCOME
+        !insertmacro MUI_PAGE_DIRECTORY
+        !insertmacro MUI_PAGE_INSTFILES
+        !insertmacro MUI_PAGE_FINISH
+        !insertmacro MUI_UNPAGE_CONFIRM
+        !insertmacro MUI_UNPAGE_INSTFILES
+        !insertmacro MUI_LANGUAGE "SimpChinese"
+
+        Section "Main"
+          SetOutPath "$INSTDIR"
+          File /r "dist\*.*"
+          WriteUninstaller "$INSTDIR\Uninstall.exe"
+          CreateShortcut "$DESKTOP\SpectralMatcher.lnk" "$INSTDIR\SpectralMatcher.exe"
+          WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "DisplayName" "SpectralMatcher"
+          WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "UninstallString" "$INSTDIR\Uninstall.exe"
+        SectionEnd
+
+        Section "Uninstall"
+          Delete "$INSTDIR\*.*"
+          RMDir /r "$INSTDIR"
+          Delete "$DESKTOP\SpectralMatcher.lnk"
+          DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher"
+        SectionEnd
+        '@
+        $nsis | Out-File -Encoding UTF8 installer.nsi
+        makensis installer.nsi
+      shell: pwsh
+
+    # ------------------------------------------------------------------ #
+    # 9. Upload artifact (for every build)
     # ------------------------------------------------------------------ #
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SpectralMatcher-windows-x64
-        path: SpectralMatcher-windows-x64.zip
+        name: SpectralMatcher-Setup
+        path: SpectralMatcher-Setup.exe
         retention-days: 30
 
     # ------------------------------------------------------------------ #
-    # 9. Create GitHub Release (only on version tags)
+    # 10. Create GitHub Release (only on version tags)
     # ------------------------------------------------------------------ #
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: SpectralMatcher-windows-x64.zip
+        files: SpectralMatcher-Setup.exe
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
