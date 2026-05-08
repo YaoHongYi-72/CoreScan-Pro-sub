@@ -390,7 +390,9 @@ private:
         m_axisY->setRange(yMin - yPad, yMax + yPad);
     }
 
-    static bool SpectralLibrary_cacheReady();
+    static bool SpectralLibrary_cacheReady() {
+        return SpectralLibrary::instance().cacheReady();
+    }
 
     // ── 图表相关 ──────────────────────────────────────────────────────
     QChartView*               m_chartView   = nullptr;
