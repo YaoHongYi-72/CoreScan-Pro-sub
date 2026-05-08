@@ -58,7 +58,8 @@ jobs:
         cmake -B build -S . `
           -DCMAKE_BUILD_TYPE=Release `
           -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
-          -DVCPKG_TARGET_TRIPLET=x64-windows
+          -DVCPKG_TARGET_TRIPLET=x64-windows `
+          -DVCPKG_INSTALLED_DIR="$env:VCPKG_INSTALLATION_ROOT\installed"
       shell: pwsh
 
     # ------------------------------------------------------------------ #
