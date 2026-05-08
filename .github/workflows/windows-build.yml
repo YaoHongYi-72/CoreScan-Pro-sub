@@ -106,39 +106,39 @@ jobs:
         choco install nsis -y --no-progress
         $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
 
-        # Write NSIS script
-        $nsis = @'
-!include "MUI2.nsh"
-Name "SpectralMatcher"
-OutFile "SpectralMatcher-Setup.exe"
-InstallDir "$PROGRAMFILES64\SpectralMatcher"
-RequestExecutionLevel admin
-
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_DIRECTORY
-!insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
-!insertmacro MUI_UNPAGE_CONFIRM
-!insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_LANGUAGE "SimpChinese"
-
-Section "Main"
-  SetOutPath "$INSTDIR"
-  File /r "dist\*.*"
-  WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$DESKTOP\SpectralMatcher.lnk" "$INSTDIR\SpectralMatcher.exe"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "DisplayName" "SpectralMatcher"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "UninstallString" "$INSTDIR\Uninstall.exe"
-SectionEnd
-
-Section "Uninstall"
-  Delete "$INSTDIR\*.*"
-  RMDir /r "$INSTDIR"
-  Delete "$DESKTOP\SpectralMatcher.lnk"
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher"
-SectionEnd
-'@
-        $nsis | Out-File -Encoding UTF8 installer.nsi
+        # Write NSIS script line by line to avoid YAML parsing issues with '!'
+        $lines = @(
+          'OutFile "SpectralMatcher-Setup.exe"',
+          'Name "SpectralMatcher"',
+          'InstallDir "$PROGRAMFILES64\SpectralMatcher"',
+          'RequestExecutionLevel admin',
+          '',
+          '!include "MUI2.nsh"',
+          '!insertmacro MUI_PAGE_WELCOME',
+          '!insertmacro MUI_PAGE_DIRECTORY',
+          '!insertmacro MUI_PAGE_INSTFILES',
+          '!insertmacro MUI_PAGE_FINISH',
+          '!insertmacro MUI_UNPAGE_CONFIRM',
+          '!insertmacro MUI_UNPAGE_INSTFILES',
+          '!insertmacro MUI_LANGUAGE "SimpChinese"',
+          '',
+          'Section "Main"',
+          '  SetOutPath "$INSTDIR"',
+          '  File /r "dist\*.*"',
+          '  WriteUninstaller "$INSTDIR\Uninstall.exe"',
+          '  CreateShortcut "$DESKTOP\SpectralMatcher.lnk" "$INSTDIR\SpectralMatcher.exe"',
+          '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "DisplayName" "SpectralMatcher"',
+          '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "UninstallString" "$INSTDIR\Uninstall.exe"',
+          'SectionEnd',
+          '',
+          'Section "Uninstall"',
+          '  Delete "$INSTDIR\*.*"',
+          '  RMDir /r "$INSTDIR"',
+          '  Delete "$DESKTOP\SpectralMatcher.lnk"',
+          '  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher"',
+          'SectionEnd'
+        )
+        $lines | Set-Content -Encoding UTF8 installer.nsi
         & $makensis installer.nsi
       shell: pwsh
 
