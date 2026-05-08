@@ -78,11 +78,16 @@ jobs:
         New-Item -ItemType Directory -Force -Path dist
         Copy-Item build\Release\SpectralMatcher.exe dist\
 
-        # install-qt-action sets QT_ROOT_DIR (e.g. C:/Qt/6.6.3/msvc2019_64)
-        Write-Host "QT_ROOT_DIR=$env:QT_ROOT_DIR"
-        $windeployqt = Join-Path $env:QT_ROOT_DIR "bin\windeployqt.exe"
-        Write-Host "windeployqt: $windeployqt"
-        & $windeployqt --no-translations --no-system-d3d-compiler dist\SpectralMatcher.exe
+        # Debug: print Qt-related env vars
+        Get-ChildItem Env: | Where-Object { $_.Name -match 'QT|Qt' } | ForEach-Object { Write-Host "$($_.Name)=$($_.Value)" }
+
+        # Find windeployqt.exe by searching Qt install locations
+        $windeployqt = Get-ChildItem "D:\a" -Filter "windeployqt.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $windeployqt) {
+          $windeployqt = Get-ChildItem "C:\" -Filter "windeployqt.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        }
+        Write-Host "Found windeployqt: $($windeployqt.FullName)"
+        & $windeployqt.FullName --no-translations --no-system-d3d-compiler dist\SpectralMatcher.exe
 
         # Compress
         Compress-Archive -Path dist\* -DestinationPath SpectralMatcher-windows-x64.zip
