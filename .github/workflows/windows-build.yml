@@ -21,6 +21,31 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    - name: Resolve version metadata
+      run: |
+        $match = Select-String -Path CMakeLists.txt -Pattern 'project\(.*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)'
+        if (-not $match -or -not $match.Matches[0].Groups[1].Value) {
+          throw "Unable to parse project version from CMakeLists.txt"
+        }
+
+        $projectVersion = $match.Matches[0].Groups[1].Value
+        if ($env:GITHUB_REF -like 'refs/tags/v*') {
+          $appVersion = $env:GITHUB_REF_NAME
+        } else {
+          $appVersion = "v$projectVersion"
+        }
+
+        $appVersionNoV = $appVersion.TrimStart('v')
+        $installerName = "SpectralMatcher-Setup-$appVersion.exe"
+
+        "APP_VERSION=$appVersion" >> $env:GITHUB_ENV
+        "APP_VERSION_NO_V=$appVersionNoV" >> $env:GITHUB_ENV
+        "INSTALLER_NAME=$installerName" >> $env:GITHUB_ENV
+
+        Write-Host "APP_VERSION=$appVersion"
+        Write-Host "INSTALLER_NAME=$installerName"
+      shell: pwsh
+
     # ------------------------------------------------------------------ #
     # 2. Install Qt6 via aqtinstall
     # ------------------------------------------------------------------ #
@@ -105,13 +130,22 @@ jobs:
       run: |
         choco install nsis -y --no-progress
         $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
+        $installerName = $env:INSTALLER_NAME
+        $appVersion = $env:APP_VERSION_NO_V
 
         # Write NSIS script line by line to avoid YAML parsing issues with '!'
         $lines = @(
-          'OutFile "SpectralMatcher-Setup.exe"',
+          "!define APP_VERSION `"$appVersion`"",
+          "OutFile `"$installerName`"",
           'Name "SpectralMatcher"',
           'InstallDir "$PROGRAMFILES64\SpectralMatcher"',
           'RequestExecutionLevel admin',
+          'VIProductVersion "${APP_VERSION}.0"',
+          'VIAddVersionKey "ProductName" "SpectralMatcher"',
+          'VIAddVersionKey "ProductVersion" "${APP_VERSION}"',
+          'VIAddVersionKey "FileVersion" "${APP_VERSION}"',
+          'VIAddVersionKey "FileDescription" "SpectralMatcher Windows Installer"',
+          'VIAddVersionKey "CompanyName" "CoreScan"',
           '',
           '!include "MUI2.nsh"',
           '!insertmacro MUI_PAGE_WELCOME',
@@ -128,6 +162,7 @@ jobs:
           '  WriteUninstaller "$INSTDIR\Uninstall.exe"',
           '  CreateShortcut "$DESKTOP\SpectralMatcher.lnk" "$INSTDIR\SpectralMatcher.exe"',
           '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "DisplayName" "SpectralMatcher"',
+          '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "DisplayVersion" "${APP_VERSION}"',
           '  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\SpectralMatcher" "UninstallString" "$INSTDIR\Uninstall.exe"',
           'SectionEnd',
           '',
@@ -148,8 +183,8 @@ jobs:
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: SpectralMatcher-Setup
-        path: SpectralMatcher-Setup.exe
+        name: SpectralMatcher-Setup-${{ env.APP_VERSION }}
+        path: ${{ env.INSTALLER_NAME }}
         retention-days: 30
 
     # ------------------------------------------------------------------ #
@@ -159,7 +194,8 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        files: SpectralMatcher-Setup.exe
+        name: SpectralMatcher ${{ env.APP_VERSION }}
+        files: ${{ env.INSTALLER_NAME }}
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

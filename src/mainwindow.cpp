@@ -22,6 +22,8 @@
 #include <QTextStream>
 #include <QFile>
 #include <QFileInfo>
+#include <QFontMetrics>
+#include <QPainter>
 #include <QtConcurrent>
 #include <QRegularExpression>
 #include <QStackedWidget>
@@ -29,6 +31,260 @@
 #include <QChartView>
 #include <QLineSeries>
 #include <QValueAxis>
+#include <cmath>
+
+namespace {
+
+QRect clampTagRect(const QRect& desired, const QSize& bounds)
+{
+    QRect rect = desired;
+    const int maxX = std::max(0, bounds.width() - rect.width());
+    const int maxY = std::max(0, bounds.height() - rect.height());
+    rect.moveLeft(std::clamp(rect.left(), 0, maxX));
+    rect.moveTop(std::clamp(rect.top(), 0, maxY));
+    return rect;
+}
+
+void drawCoordinateTag(QPainter* painter,
+                       const QRect& viewportRect,
+                       const QPoint& anchor,
+                       const QString& text,
+                       const QColor& borderColor)
+{
+    const QFontMetrics fm = painter->fontMetrics();
+    const QSize textSize = fm.size(Qt::TextSingleLine, text);
+    const QSize boxSize(textSize.width() + 14, textSize.height() + 8);
+    const QPoint preferredTopLeft = anchor + QPoint(12, -boxSize.height() - 8);
+    QRect box(preferredTopLeft, boxSize);
+
+    if (box.left() < viewportRect.left())
+        box.moveLeft(anchor.x() + 12);
+    if (box.top() < viewportRect.top())
+        box.moveTop(anchor.y() + 12);
+
+    box = clampTagRect(box, viewportRect.size());
+
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QColor(18, 20, 31, 220));
+    painter->drawRoundedRect(box, 5, 5);
+
+    painter->setPen(QPen(borderColor, 1.0));
+    painter->setBrush(Qt::NoBrush);
+    painter->drawRoundedRect(box, 5, 5);
+
+    painter->setPen(QColor("#e6ecff"));
+    painter->drawText(box.adjusted(7, 4, -7, -4),
+                      Qt::AlignLeft | Qt::AlignVCenter, text);
+}
+
+} // namespace
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EnviGraphicsView
+// ─────────────────────────────────────────────────────────────────────────────
+EnviGraphicsView::EnviGraphicsView(QGraphicsScene* scene, QWidget* parent)
+    : QGraphicsView(scene, parent)
+{
+    setDragMode(QGraphicsView::NoDrag);
+    setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
+    setResizeAnchor(QGraphicsView::AnchorUnderMouse);
+    setRenderHint(QPainter::SmoothPixmapTransform, false);
+    setStyleSheet("background:#0f1018; border:none;");
+    setMouseTracking(true);
+    viewport()->setMouseTracking(true);
+    viewport()->setCursor(Qt::CrossCursor);
+}
+
+void EnviGraphicsView::resetZoom()
+{
+    resetTransform();
+    m_zoom = 1.0;
+    emit zoomChanged(m_zoom);
+    viewport()->update();
+}
+
+void EnviGraphicsView::setImageRect(const QRectF& rect)
+{
+    m_imageRect = rect;
+    clearHoverState();
+    viewport()->update();
+}
+
+void EnviGraphicsView::clearSelectionMarkers()
+{
+    m_selectedPixels.clear();
+    clearHoverState();
+    viewport()->update();
+}
+
+void EnviGraphicsView::wheelEvent(QWheelEvent* e)
+{
+    double factor = (e->angleDelta().y() > 0) ? 1.2 : (1.0 / 1.2);
+    m_zoom *= factor;
+    scale(factor, factor);
+    emit zoomChanged(m_zoom);
+    viewport()->update();
+    e->accept();
+}
+
+void EnviGraphicsView::mousePressEvent(QMouseEvent* e)
+{
+    if (e->button() == Qt::MiddleButton || e->button() == Qt::RightButton) {
+        m_isPanning = true;
+        m_panStartPos = e->pos();
+        m_panStartHValue = horizontalScrollBar()->value();
+        m_panStartVValue = verticalScrollBar()->value();
+        viewport()->setCursor(Qt::ClosedHandCursor);
+        e->accept();
+        return;
+    }
+
+    if (e->button() == Qt::LeftButton) {
+        const QPointF scenePos = mapToScene(e->pos());
+        if (isInsideImage(scenePos)) {
+            const QPoint pixel(
+                std::clamp(static_cast<int>(std::floor(scenePos.x())),
+                           0, static_cast<int>(m_imageRect.width()) - 1),
+                std::clamp(static_cast<int>(std::floor(scenePos.y())),
+                           0, static_cast<int>(m_imageRect.height()) - 1));
+            addSelectionMarker(pixel);
+            emit pixelClicked(pixel.x(), pixel.y());
+            e->accept();
+            return;
+        }
+    }
+
+    QGraphicsView::mousePressEvent(e);
+}
+
+void EnviGraphicsView::mouseMoveEvent(QMouseEvent* e)
+{
+    if (m_isPanning) {
+        const QPoint delta = e->pos() - m_panStartPos;
+        horizontalScrollBar()->setValue(m_panStartHValue - delta.x());
+        verticalScrollBar()->setValue(m_panStartVValue - delta.y());
+        viewport()->update();
+        e->accept();
+        return;
+    }
+
+    updateHoverState(e->pos());
+    QGraphicsView::mouseMoveEvent(e);
+}
+
+void EnviGraphicsView::mouseReleaseEvent(QMouseEvent* e)
+{
+    if ((e->button() == Qt::MiddleButton || e->button() == Qt::RightButton)
+        && m_isPanning) {
+        m_isPanning = false;
+        viewport()->setCursor(Qt::CrossCursor);
+        updateHoverState(e->pos());
+        e->accept();
+        return;
+    }
+
+    QGraphicsView::mouseReleaseEvent(e);
+}
+
+void EnviGraphicsView::leaveEvent(QEvent* e)
+{
+    clearHoverState();
+    QGraphicsView::leaveEvent(e);
+}
+
+void EnviGraphicsView::drawForeground(QPainter* painter, const QRectF& rect)
+{
+    Q_UNUSED(rect);
+
+    painter->save();
+    painter->resetTransform();
+    painter->setRenderHint(QPainter::Antialiasing, true);
+
+    const QRect viewportRect = viewport()->rect();
+    const int markerHalfSize = 7;
+
+    QPen markerPen(QColor("#ffd166"));
+    markerPen.setWidth(2);
+    markerPen.setCapStyle(Qt::RoundCap);
+    painter->setPen(markerPen);
+
+    for (const QPoint& pixel : m_selectedPixels) {
+        const QPoint markerPos = mapFromScene(
+            QPointF(pixel.x() + 0.5, pixel.y() + 0.5));
+
+        if (!viewportRect.adjusted(-20, -20, 20, 20).contains(markerPos))
+            continue;
+
+        painter->drawLine(markerPos + QPoint(-markerHalfSize, 0),
+                          markerPos + QPoint(markerHalfSize, 0));
+        painter->drawLine(markerPos + QPoint(0, -markerHalfSize),
+                          markerPos + QPoint(0, markerHalfSize));
+
+        drawCoordinateTag(painter, viewportRect, markerPos,
+                          QString("(%1, %2)").arg(pixel.x()).arg(pixel.y()),
+                          QColor("#ffd166"));
+    }
+
+    if (m_hoverValid && !m_isPanning) {
+        drawCoordinateTag(painter, viewportRect, m_hoverViewportPos,
+                          QString("(%1, %2)")
+                              .arg(m_hoverPixel.x())
+                              .arg(m_hoverPixel.y()),
+                          QColor("#7c9cff"));
+    }
+
+    painter->restore();
+}
+
+bool EnviGraphicsView::isInsideImage(const QPointF& scenePos) const
+{
+    return !m_imageRect.isEmpty() && m_imageRect.contains(scenePos);
+}
+
+void EnviGraphicsView::updateHoverState(const QPoint& viewportPos)
+{
+    const QPointF scenePos = mapToScene(viewportPos);
+    if (!isInsideImage(scenePos)) {
+        clearHoverState();
+        return;
+    }
+
+    const QPoint pixel(
+        std::clamp(static_cast<int>(std::floor(scenePos.x())),
+                   0, static_cast<int>(m_imageRect.width()) - 1),
+        std::clamp(static_cast<int>(std::floor(scenePos.y())),
+                   0, static_cast<int>(m_imageRect.height()) - 1));
+    const bool changed = !m_hoverValid
+        || m_hoverPixel != pixel
+        || m_hoverViewportPos != viewportPos;
+
+    m_hoverValid = true;
+    m_hoverPixel = pixel;
+    m_hoverViewportPos = viewportPos;
+
+    emit hoverPixelChanged(pixel.x(), pixel.y(), true);
+    if (changed)
+        viewport()->update();
+}
+
+void EnviGraphicsView::clearHoverState()
+{
+    if (!m_hoverValid)
+        return;
+
+    m_hoverValid = false;
+    emit hoverPixelChanged(-1, -1, false);
+    viewport()->update();
+}
+
+void EnviGraphicsView::addSelectionMarker(const QPoint& pixel)
+{
+    if (std::find(m_selectedPixels.begin(), m_selectedPixels.end(), pixel)
+        == m_selectedPixels.end()) {
+        m_selectedPixels.append(pixel);
+    }
+    viewport()->update();
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PixelPopup 实现
@@ -246,6 +502,8 @@ void MainWindow::setupEnviTab()
             this, &MainWindow::onEnviBandChanged);
     connect(m_enviView, &EnviGraphicsView::pixelClicked,
             this, &MainWindow::onEnviPixelClicked);
+    connect(m_enviView, &EnviGraphicsView::hoverPixelChanged,
+            this, &MainWindow::onEnviHoverChanged);
     connect(m_enviView, &EnviGraphicsView::zoomChanged, this, [this](double z) {
         m_zoomLabel->setText(tr("缩放: %1%").arg(qRound(z * 100)));
     });
@@ -402,6 +660,13 @@ void MainWindow::onOpenEnvi()
             return;
         }
         m_dataset = std::move(ds);
+        m_lastSelectedSample = -1;
+        m_lastSelectedLine = -1;
+        m_lastResultHasPixel = false;
+        m_lastResultSample = -1;
+        m_lastResultLine = -1;
+        m_coordLabel->setText(tr("坐标: -- , --"));
+        m_enviView->clearSelectionMarkers();
 
         m_bandCombo->blockSignals(true);
         m_bandCombo->clear();
@@ -513,6 +778,7 @@ void MainWindow::onEnviBandChanged(int idx)
 
     QImage img = m_dataset->getBandImage(idx);
     QPixmap pm = QPixmap::fromImage(img);
+    m_enviView->setImageRect(pm.rect());
 
     if (!m_enviPixItem) {
         // 首次加载：清空场景，添加图像 item
@@ -538,11 +804,11 @@ void MainWindow::onEnviPixelClicked(int sample, int line)
     if (sample < 0 || line < 0 || sample >= meta.samples || line >= meta.lines)
         return;
 
-    m_coordLabel->setText(tr("S:%1  L:%2  — 分析中...").arg(sample).arg(line));
+    m_lastSelectedSample = sample;
+    m_lastSelectedLine = line;
+    m_coordLabel->setText(tr("坐标: (%1, %2)").arg(sample).arg(line));
+    updateStatusBar(tr("正在分析像元 (%1, %2)...").arg(sample).arg(line));
 
-    // 先弹出 PixelPopup，让用户确认后再触发分析
-    // （PixelPopup 的 spectrumRequested 信号已连接到本槽，
-    //   所以这里直接执行分析，不再二次弹窗）
     QVector<double> spectrum = m_dataset->getPixelSpectrum(sample, line);
     QVector<double> wls      = m_dataset->meta().wavelengths;
 
@@ -559,11 +825,6 @@ void MainWindow::onEnviPixelClicked(int sample, int line)
         return res;
     });
     m_enviWatcher->setFuture(future);
-
-    // 同时弹出 PixelPopup（显示坐标 + "查看光谱"按钮）
-    // 注意：PixelPopup 的 spectrumRequested 已连接到本槽，
-    // 但此处我们直接触发分析，popup 仅作坐标提示用
-    // 若需要"先弹窗再分析"的交互，可在 eventFilter 中改为先 showAt
 }
 
 void MainWindow::onEnviAnalysisFinished()
@@ -571,18 +832,37 @@ void MainWindow::onEnviAnalysisFinished()
     PixelMatchResult res = m_enviWatcher->result();
     if (!res.error.isEmpty()) {
         updateStatusBar(tr("分析出错: %1").arg(res.error));
-        m_coordLabel->setText(tr("出错"));
         return;
     }
-    m_coordLabel->setText(tr("分析完成 — %1 个匹配").arg(res.matches.size()));
+    m_lastResultHasPixel = true;
+    m_lastResultSample = m_lastSelectedSample;
+    m_lastResultLine = m_lastSelectedLine;
+    m_coordLabel->setText(
+        tr("坐标: (%1, %2)").arg(m_lastSelectedSample).arg(m_lastSelectedLine));
+    updateStatusBar(tr("像元 (%1, %2) 分析完成 — %3 个匹配")
+        .arg(m_lastSelectedSample).arg(m_lastSelectedLine).arg(res.matches.size()));
     showMatchResults(res.matches, res.wavelengths, res.spectrum);
 
-    // 弹出 SpectrumDialog 显示完整光谱图 + 矿物匹配表
-    // 需要知道点击的坐标，从 coordLabel 文字中解析（简单方案）
-    auto* dlg = new SpectrumDialog(0, 0, res.spectrum, res.wavelengths,
+    auto* dlg = new SpectrumDialog(m_lastSelectedSample, m_lastSelectedLine,
+                                   res.spectrum, res.wavelengths,
                                    res.matches, false, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
+}
+
+void MainWindow::onEnviHoverChanged(int sample, int line, bool inside)
+{
+    if (inside) {
+        m_coordLabel->setText(tr("坐标: (%1, %2)").arg(sample).arg(line));
+        return;
+    }
+
+    if (m_lastSelectedSample >= 0 && m_lastSelectedLine >= 0) {
+        m_coordLabel->setText(
+            tr("坐标: (%1, %2)").arg(m_lastSelectedSample).arg(m_lastSelectedLine));
+    } else {
+        m_coordLabel->setText(tr("坐标: -- , --"));
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -624,6 +904,9 @@ void MainWindow::onImportAnalysisFinished()
         return;
     }
     updateStatusBar(tr("分析完成 — 找到 %1 个匹配").arg(res.matches.size()));
+    m_lastResultHasPixel = false;
+    m_lastResultSample = -1;
+    m_lastResultLine = -1;
     showMatchResults(res.matches, res.wavelengths, res.spectrum);
 
     // 弹出 SpectrumDialog 显示完整光谱图 + 矿物匹配表
@@ -726,7 +1009,9 @@ void MainWindow::updateInlineChart(const QVector<double>& wl,
 void MainWindow::onMatchResultClicked(int row)
 {
     if (row < 0 || m_lastWl.isEmpty()) return;
-    auto* dlg = new SpectrumDialog(0, 0, m_lastSpectrum, m_lastWl,
+    const int sample = m_lastResultHasPixel ? m_lastResultSample : 0;
+    const int line   = m_lastResultHasPixel ? m_lastResultLine : 0;
+    auto* dlg = new SpectrumDialog(sample, line, m_lastSpectrum, m_lastWl,
                                    m_lastMatches, false, this);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
@@ -736,4 +1021,3 @@ void MainWindow::onLibraryItemDoubleClicked(int /*row*/)
 {
     // 预留：双击库条目显示参考光谱
 }
-

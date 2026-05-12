@@ -9,8 +9,8 @@ Supports ENVI hyperspectral images and direct spectrum file import.
 
 ## Download (Windows)
 
-Go to the [Releases](https://github.com/YaoHongYi-72/CoreScan-Pro-sub/releases) page and download the latest `SpectralMatcher-windows-x64.zip`.
-Extract and run `SpectralMatcher.exe` — no installation required.
+Go to the [Releases](https://github.com/YaoHongYi-72/CoreScan-Pro-sub/releases) page and download the latest `SpectralMatcher-Setup-vX.Y.Z.exe` installer.
+Run the installer and launch `SpectralMatcher` from the desktop shortcut after setup completes.
 
 ---
 
@@ -26,6 +26,7 @@ Extract and run `SpectralMatcher.exe` — no installation required.
 | Continuum Removal | Upper-convex-hull CR preprocessing for feature enhancement |
 | Dual-gate confidence | Combined score: 60 % SAM + 40 % NRMSE, 0–100 scale |
 | Chart overlay | Interactive Qt Charts view with reference spectrum overlay |
+| Pixel inspection UX | Crosshair cursor, live hover coordinates, and persistent point markers |
 
 ---
 
@@ -35,7 +36,9 @@ Extract and run `SpectralMatcher.exe` — no installation required.
 
 1. **File → Open ENVI File (.hdr)...** — select the `.hdr` file (the binary `.img`/`.raw` must be in the same directory).
 2. Choose a display band from the dropdown.
-3. Click any pixel in the image — matches appear in the **Match Results** panel on the right.
+3. Move the cursor over the image to inspect live pixel coordinates.
+4. Left-click any pixel to analyze it — matches appear in the **Match Results** panel on the right and the point stays marked on the image.
+5. Use the right mouse button or middle mouse button to drag and pan large images.
 
 ### Option B — Spectrum File (txt / csv)
 
