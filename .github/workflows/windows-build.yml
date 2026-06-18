@@ -39,17 +39,20 @@ jobs:
 
         $appVersionNoV = $appVersion.TrimStart('v')
         $installerName = "$appName-安装包-$appVersion.exe"
+        $stagingInstallerName = "installer-output.exe"
 
         "APP_NAME=$appName" >> $env:GITHUB_ENV
         "APP_EXE_NAME=$appExeName" >> $env:GITHUB_ENV
         "APP_VERSION=$appVersion" >> $env:GITHUB_ENV
         "APP_VERSION_NO_V=$appVersionNoV" >> $env:GITHUB_ENV
         "INSTALLER_NAME=$installerName" >> $env:GITHUB_ENV
+        "STAGING_INSTALLER_NAME=$stagingInstallerName" >> $env:GITHUB_ENV
 
         Write-Host "APP_NAME=$appName"
         Write-Host "APP_VERSION=$appVersion"
         Write-Host "APP_EXE_NAME=$appExeName"
         Write-Host "INSTALLER_NAME=$installerName"
+        Write-Host "STAGING_INSTALLER_NAME=$stagingInstallerName"
       shell: pwsh
 
     # ------------------------------------------------------------------ #
@@ -146,6 +149,7 @@ jobs:
         choco install nsis -y --no-progress
         $makensis = "C:\Program Files (x86)\NSIS\makensis.exe"
         $installerName = $env:INSTALLER_NAME
+        $stagingInstallerName = $env:STAGING_INSTALLER_NAME
         $appVersion = $env:APP_VERSION_NO_V
         $appName = $env:APP_NAME
         $appExeName = $env:APP_EXE_NAME
@@ -155,7 +159,7 @@ jobs:
           "!define APP_VERSION `"$appVersion`"",
           "!define APP_NAME `"$appName`"",
           "!define APP_EXE_NAME `"$appExeName`"",
-          "OutFile `"$installerName`"",
+          "OutFile `"$stagingInstallerName`"",
           'Name "${APP_NAME}"',
           'InstallDir "$PROGRAMFILES64\${APP_NAME}"',
           'RequestExecutionLevel admin',
@@ -194,6 +198,18 @@ jobs:
         )
         $lines | Set-Content -Encoding UTF8 installer.nsi
         & $makensis installer.nsi
+
+        if (-not (Test-Path $stagingInstallerName)) {
+          throw "Installer was not created: $stagingInstallerName"
+        }
+
+        Copy-Item $stagingInstallerName $installerName -Force
+
+        if (-not (Test-Path $installerName)) {
+          throw "Final installer file is missing: $installerName"
+        }
+
+        Get-Item $installerName | Format-List FullName,Length
       shell: pwsh
 
     # ------------------------------------------------------------------ #
@@ -204,6 +220,7 @@ jobs:
       with:
         name: ${{ env.APP_NAME }}-安装包-${{ env.APP_VERSION }}
         path: ${{ env.INSTALLER_NAME }}
+        if-no-files-found: error
         retention-days: 30
 
     # ------------------------------------------------------------------ #
