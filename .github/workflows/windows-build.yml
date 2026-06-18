@@ -121,6 +121,15 @@ jobs:
         if ($msvcRedist) {
           Copy-Item "$msvcRedist\*.dll" dist\ -ErrorAction SilentlyContinue
         }
+
+        # Copy built-in spectral library files
+        if (Test-Path "build\Release\光谱数据库") {
+          Copy-Item "build\Release\光谱数据库" "dist\光谱数据库" -Recurse -Force
+        } elseif (Test-Path "resources\光谱数据库") {
+          Copy-Item "resources\光谱数据库" "dist\光谱数据库" -Recurse -Force
+        } else {
+          throw "Built-in spectral library folder not found."
+        }
       shell: pwsh
 
     # ------------------------------------------------------------------ #

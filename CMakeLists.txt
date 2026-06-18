@@ -66,6 +66,8 @@ set(SOURCES
     src/osqp_eigen_utils.h
 )
 
+set(SPECTRAL_LIBRARY_DIR "${CMAKE_SOURCE_DIR}/resources/光谱数据库")
+
 if(WIN32)
     qt_add_executable(SpectralMatcher WIN32 ${SOURCES})
 else()
@@ -90,6 +92,17 @@ target_link_libraries(SpectralMatcher PRIVATE
     osqp::osqp
 )
 
+if(EXISTS "${SPECTRAL_LIBRARY_DIR}")
+    add_custom_command(TARGET SpectralMatcher POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:SpectralMatcher>/光谱数据库"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${SPECTRAL_LIBRARY_DIR}"
+                "$<TARGET_FILE_DIR:SpectralMatcher>/光谱数据库"
+        COMMENT "Copying built-in spectral library..."
+    )
+endif()
+
 # ---------------------------------------------------------------------------
 # Windows: run windeployqt automatically after build
 # ---------------------------------------------------------------------------
@@ -110,3 +123,6 @@ endif()
 # Install
 # ---------------------------------------------------------------------------
 install(TARGETS SpectralMatcher DESTINATION .)
+if(EXISTS "${SPECTRAL_LIBRARY_DIR}")
+    install(DIRECTORY "${SPECTRAL_LIBRARY_DIR}/" DESTINATION "光谱数据库")
+endif()

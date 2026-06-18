@@ -74,8 +74,13 @@ QStringList builtInLibraryDirectories()
 
     addCandidate(QDir(appDir).filePath(QStringLiteral("光谱数据库/database1")));
     addCandidate(QDir(appDir).filePath(QStringLiteral("../光谱数据库/database1")));
+    addCandidate(QDir(appDir).filePath(QStringLiteral("../Resources/光谱数据库/database1")));
+    addCandidate(QDir(appDir).filePath(QStringLiteral("../../Resources/光谱数据库/database1")));
+    addCandidate(QDir(appDir).filePath(QStringLiteral("../resources/光谱数据库/database1")));
     addCandidate(QDir(currentDir).filePath(QStringLiteral("光谱数据库/database1")));
     addCandidate(QDir(currentDir).filePath(QStringLiteral("../光谱数据库/database1")));
+    addCandidate(QDir(currentDir).filePath(QStringLiteral("resources/光谱数据库/database1")));
+    addCandidate(QDir(currentDir).filePath(QStringLiteral("../resources/光谱数据库/database1")));
     addCandidate(QStringLiteral("/Users/yhy/Desktop/地调中心项目/光谱数据库/database1"));
 
     return dirs;
@@ -716,22 +721,51 @@ bool MainWindow::loadBuiltInLibrary(bool showFailureDialog)
         return false;
     }
 
+    struct LibraryFileSummary {
+        QString title;
+        QString fileName;
+        int spectraCount = 0;
+        bool exists = false;
+    };
+
+    QVector<LibraryFileSummary> summaries;
     int loaded = 0;
     int loadedFileCount = 0;
     for (const QString& fileName : fileNames) {
         const QString filePath = QDir(libraryDir).filePath(fileName);
-        if (!QFileInfo::exists(filePath))
-            continue;
+        const QString sourceName =
+            localizedLibrarySourceName(QFileInfo(filePath).completeBaseName());
 
-        loaded += lib.loadUSGSTxt(filePath, localizedLibrarySourceName(QFileInfo(filePath).completeBaseName()));
-        ++loadedFileCount;
+        LibraryFileSummary summary;
+        summary.title = sourceName;
+        summary.fileName = fileName;
+        summary.exists = QFileInfo::exists(filePath);
+        if (summary.exists) {
+            summary.spectraCount = lib.loadUSGSTxt(filePath, sourceName);
+            loaded += summary.spectraCount;
+            ++loadedFileCount;
+        }
+        summaries.append(summary);
     }
 
     m_libraryList->clear();
-    const auto& spectra = lib.spectra();
-    for (const auto& entry : spectra)
-        m_libraryList->addItem(entry.name);
+    for (const LibraryFileSummary& summary : summaries) {
+        QString text;
+        if (!summary.exists) {
+            text = tr("%1  |  %2  |  未找到文件")
+                       .arg(summary.title, summary.fileName);
+        } else if (summary.spectraCount <= 0) {
+            text = tr("%1  |  %2  |  未读到有效光谱")
+                       .arg(summary.title, summary.fileName);
+        } else {
+            text = tr("%1  |  %2  |  %3 条光谱")
+                       .arg(summary.title, summary.fileName)
+                       .arg(summary.spectraCount);
+        }
+        m_libraryList->addItem(text);
+    }
 
+    const auto& spectra = lib.spectra();
     if (loaded <= 0 || spectra.isEmpty()) {
         m_libraryStatus->setText(tr("内置光谱库加载失败。"));
         updateStatusBar(tr("内置光谱库加载失败。"));
@@ -745,7 +779,9 @@ bool MainWindow::loadBuiltInLibrary(bool showFailureDialog)
     }
 
     m_libraryStatus->setText(
-        tr("内置光谱库已就绪，共 %1 条参考光谱。").arg(spectra.size()));
+        tr("内置光谱库已就绪，已载入 %1 个库文件，共 %2 条参考光谱。")
+            .arg(loadedFileCount)
+            .arg(spectra.size()));
     updateStatusBar(
         tr("已载入内置光谱库：%1 个文件，%2 条参考光谱。")
             .arg(loadedFileCount)
