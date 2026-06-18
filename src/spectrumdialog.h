@@ -37,9 +37,12 @@ public:
                             QWidget* parent = nullptr)
         : QDialog(parent), m_entries(entries), m_isSAM(isSAM)
     {
-        setWindowTitle(QString("光谱图  (%1, %2)").arg(x).arg(y));
+        if (x >= 0 && y >= 0)
+            setWindowTitle(QString("点位光谱图（%1，%2）").arg(x).arg(y));
+        else
+            setWindowTitle(QStringLiteral("光谱图"));
         setWindowFlags(Qt::Dialog | Qt::WindowCloseButtonHint
-                     | Qt::WindowMinimizeButtonHint | Qt::WindowStaysOnTopHint);
+                     | Qt::WindowMinimizeButtonHint);
         setAttribute(Qt::WA_DeleteOnClose);
         resize(760, 680);
 
@@ -69,28 +72,43 @@ public:
         // ── 信息栏 + Y轴模式切换按钮 ─────────────────────────────────────
         m_pixelYMin = vals.isEmpty() ? 0 : *std::min_element(vals.begin(), vals.end());
         m_pixelYMax = vals.isEmpty() ? 1 : *std::max_element(vals.begin(), vals.end());
-        auto* infoLabel = new QLabel(
-            QString("坐标: (%1, %2)　|　波段数: %3　|　反射率范围: %4 ~ %5")
-            .arg(x).arg(y).arg(vals.size())
-            .arg(m_pixelYMin, 0, 'f', 4).arg(m_pixelYMax, 0, 'f', 4));
+        QString infoText;
+        if (x >= 0 && y >= 0) {
+            infoText = QString("坐标: (%1, %2)　|　波段数: %3　|　反射率范围: %4 ~ %5")
+                .arg(x).arg(y).arg(vals.size())
+                .arg(m_pixelYMin, 0, 'f', 4).arg(m_pixelYMax, 0, 'f', 4);
+        } else {
+            infoText = QString("波段数: %1　|　反射率范围: %2 ~ %3")
+                .arg(vals.size())
+                .arg(m_pixelYMin, 0, 'f', 4).arg(m_pixelYMax, 0, 'f', 4);
+        }
+        auto* infoLabel = new QLabel(infoText);
         infoLabel->setStyleSheet("color:#7c9cff; font-size:11px; padding:4px 0;");
 
-        m_axisAutoBtn = new QPushButton("自动 Y 轴");
+        m_pinTopBtn = new QPushButton("窗口置顶");
+        m_pinTopBtn->setCheckable(true);
+        m_pinTopBtn->setChecked(false);
+        m_pinTopBtn->setToolTip("开启后，当前光谱窗口会保持在最前面。");
+
+        m_axisAutoBtn = new QPushButton("自动纵轴");
         m_axisAutoBtn->setCheckable(true);
         m_axisAutoBtn->setChecked(false);
         m_axisAutoBtn->setToolTip(
-            "关闭：Y 轴锁定在像元范围，像元曲线不被压扁\n"
-            "开启：Y 轴自动扩展以包含所有参考曲线完整形状");
+            "关闭：纵轴锁定在当前光谱范围\n"
+            "开启：纵轴自动扩展，以完整显示叠加参考谱");
 
         auto* infoRow = new QHBoxLayout();
         infoRow->addWidget(infoLabel);
         infoRow->addStretch();
+        infoRow->addWidget(m_pinTopBtn);
         infoRow->addWidget(m_axisAutoBtn);
         layout->addLayout(infoRow);
 
         // ── 光谱折线图 ────────────────────────────────────────────────
         auto* series = new QLineSeries();
-        series->setName(QString("像元 (%1,%2)").arg(x).arg(y));
+        series->setName((x >= 0 && y >= 0)
+                        ? QString("点位 (%1,%2)").arg(x).arg(y)
+                        : QStringLiteral("导入光谱"));
         QPen pen(QColor("#7c9cff")); pen.setWidthF(1.5);
         series->setPen(pen);
 
@@ -109,7 +127,7 @@ public:
         chart->legend()->setAlignment(Qt::AlignBottom);
 
         m_axisX = new QValueAxis();
-        m_axisX->setTitleText(wl.isEmpty() ? "波段序号" : "波长 (nm)");
+        m_axisX->setTitleText(wl.isEmpty() ? "波段序号" : "波长（纳米）");
         m_axisX->setLabelFormat("%.0f");
         m_axisX->setTickCount(11);
         m_axisX->setMinorTickCount(4);
@@ -145,18 +163,20 @@ public:
 
         connect(m_axisAutoBtn, &QPushButton::toggled,
                 this, [this](bool){ updateAxisRanges(); });
+        connect(m_pinTopBtn, &QPushButton::toggled,
+                this, [this](bool checked){ applyStayOnTop(checked); });
 
         // ── 矿物匹配结果表（带复选框）────────────────────────────────
         if (!entries.isEmpty()) {
             QString tableLabel = isSAM
-                ? "矿物匹配结果（SAM，按角度排序）— 勾选矿物可在图上叠加参考光谱"
-                : "矿物解混结果（FCLS，按丰度排序）— 勾选矿物可在图上叠加参考光谱";
+                ? "矿物匹配结果（按角度排序）— 勾选条目可叠加参考光谱"
+                : "矿物解混结果（按占比排序）— 勾选条目可叠加参考光谱";
             auto* matchLabel = new QLabel(tableLabel);
             matchLabel->setStyleSheet("color:#7c9cff; font-size:11px; padding:4px 0 2px 0;");
             layout->addWidget(matchLabel);
 
             m_table = new QTableWidget(entries.size(), 4);
-            QString col3 = isSAM ? "SAM角(°)" : "丰度";
+            QString col3 = isSAM ? "匹配角度（度）" : "丰度";
             m_table->setHorizontalHeaderLabels({"矿物名称", "来源", col3, "置信度"});
             m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
             m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
@@ -222,18 +242,18 @@ public:
             layout->addWidget(m_table);
 
         } else if (SpectralLibrary_cacheReady()) {
-            auto* noMatch = new QLabel("（光谱重叠不足或丰度均低于 1%，无匹配结果）");
+            auto* noMatch = new QLabel("（光谱重叠不足或占比较低，暂无匹配结果）");
             noMatch->setStyleSheet("color:#555870; font-size:11px; padding:2px 0;");
             layout->addWidget(noMatch);
         } else {
-            auto* noLib = new QLabel("（未加载波谱库，无法匹配矿物）");
+            auto* noLib = new QLabel("（内置光谱库未加载，暂时无法匹配矿物）");
             noLib->setStyleSheet("color:#555870; font-size:11px; padding:2px 0;");
             layout->addWidget(noLib);
         }
 
         // ── 底部按钮 ──────────────────────────────────────────────────
         auto* btnRow    = new QHBoxLayout();
-        auto* saveBtn   = new QPushButton("保存为 PNG");
+        auto* saveBtn   = new QPushButton("保存图片");
         auto* exportBtn = new QPushButton("导出光谱数据");
         auto* closeBtn  = new QPushButton("关闭");
         btnRow->addWidget(saveBtn);
@@ -252,34 +272,36 @@ public:
 
 private slots:
     void onSave() {
+        const QString defaultName = (m_x < 0 || m_y < 0)
+            ? QStringLiteral("导入光谱图.png")
+            : QString("点位光谱_%1_%2.png").arg(m_x).arg(m_y);
         QString path = QFileDialog::getSaveFileName(
-            this, "保存光谱图",
-            QString("spectrum_%1_%2.png").arg(m_x).arg(m_y),
-            "PNG 图片 (*.png)");
+            this, "保存光谱图", defaultName,
+            "图片文件 (*.png)");
         if (path.isEmpty()) return;
         QPixmap pix = m_chartView->grab();
         pix.save(path, "PNG");
     }
 
     void onExport() {
-        QString defaultName = (m_x < 0)
-            ? "roi_spectrum.txt"
-            : QString("spectrum_%1_%2.txt").arg(m_x).arg(m_y);
+        QString defaultName = (m_x < 0 || m_y < 0)
+            ? QStringLiteral("导入光谱数据.txt")
+            : QString("点位光谱_%1_%2.txt").arg(m_x).arg(m_y);
         QString path = QFileDialog::getSaveFileName(
             this, "导出光谱数据", defaultName,
-            "ENVI ASCII Plot (*.txt);;所有文件 (*)");
+            "文本文件 (*.txt);;所有文件 (*)");
         if (path.isEmpty()) return;
 
         QFile f(path);
         if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
         QTextStream ts(&f);
 
-        ts << "ENVI ASCII Plot File\n";
-        ts << "Column 1: Wavelength\n";
-        QString label = (m_x < 0)
-            ? "ROI Mean Spectrum"
-            : QString("Pixel (%1, %2)").arg(m_x).arg(m_y);
-        ts << "Column 2: " << label << "\n";
+        ts << "光谱数据文件\n";
+        ts << "列1：波长（纳米）\n";
+        QString label = (m_x < 0 || m_y < 0)
+            ? QStringLiteral("导入光谱")
+            : QString("点位 (%1, %2)").arg(m_x).arg(m_y);
+        ts << "列2：" << label << "\n";
 
         for (int i = 0; i < m_vals.size(); ++i) {
             double wlVal = (i < m_wl.size()) ? m_wl[i] : (double)i;
@@ -351,6 +373,20 @@ private slots:
     }
 
 private:
+    void applyStayOnTop(bool enabled) {
+        const QPoint oldPos = pos();
+        const QSize oldSize = size();
+        const bool wasVisible = isVisible();
+        setWindowFlag(Qt::WindowStaysOnTopHint, enabled);
+        if (wasVisible) {
+            show();
+            resize(oldSize);
+            move(oldPos);
+            raise();
+            activateWindow();
+        }
+    }
+
     // 根据行号返回固定调色板颜色（与像元蓝色 #7c9cff 区分）
     static QColor refColor(int row) {
         static const QColor kPalette[] = {
@@ -398,6 +434,7 @@ private:
     QChartView*               m_chartView   = nullptr;
     QValueAxis*               m_axisX       = nullptr;
     QValueAxis*               m_axisY       = nullptr;
+    QPushButton*              m_pinTopBtn   = nullptr;
     QPushButton*              m_axisAutoBtn = nullptr;   // "自动 Y 轴"切换按钮
 
     // ── 矿物列表相关 ──────────────────────────────────────────────────

@@ -5,9 +5,9 @@
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
-    app.setApplicationName("CoreScan Pro Spectral Matching");
+    app.setApplicationName(QStringLiteral("光谱匹配工具"));
     app.setApplicationVersion(QStringLiteral(APP_VERSION));
-    app.setOrganizationName("CoreScan");
+    app.setOrganizationName(QStringLiteral("地调中心"));
 
     // Dark style
     app.setStyle(QStyleFactory::create("Fusion"));

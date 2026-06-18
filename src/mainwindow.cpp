@@ -24,6 +24,10 @@
 #include <QFileInfo>
 #include <QFontMetrics>
 #include <QPainter>
+#include <QDir>
+#include <QCoreApplication>
+#include <QTabBar>
+#include <QHash>
 #include <QtConcurrent>
 #include <QRegularExpression>
 #include <QStackedWidget>
@@ -34,6 +38,48 @@
 #include <cmath>
 
 namespace {
+
+QString localizedLibrarySourceName(const QString& fileBaseName)
+{
+    static const QHash<QString, QString> mapping = {
+        {QStringLiteral("A-D-USGS"), QStringLiteral("内置库一")},
+        {QStringLiteral("E-L-USGS"), QStringLiteral("内置库二")},
+        {QStringLiteral("M-S-USGS"), QStringLiteral("内置库三")},
+        {QStringLiteral("T-Z-USGS"), QStringLiteral("内置库四")}
+    };
+    return mapping.value(fileBaseName, QStringLiteral("内置光谱库"));
+}
+
+QStringList builtInLibraryFileNames()
+{
+    return {
+        QStringLiteral("A-D-USGS.TXT"),
+        QStringLiteral("E-L-USGS.TXT"),
+        QStringLiteral("M-S-USGS.TXT"),
+        QStringLiteral("T-Z-USGS.TXT")
+    };
+}
+
+QStringList builtInLibraryDirectories()
+{
+    QStringList dirs;
+    auto addCandidate = [&dirs](const QString& path) {
+        const QString cleanPath = QDir(path).absolutePath();
+        if (!dirs.contains(cleanPath))
+            dirs.append(cleanPath);
+    };
+
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString currentDir = QDir::currentPath();
+
+    addCandidate(QDir(appDir).filePath(QStringLiteral("光谱数据库/database1")));
+    addCandidate(QDir(appDir).filePath(QStringLiteral("../光谱数据库/database1")));
+    addCandidate(QDir(currentDir).filePath(QStringLiteral("光谱数据库/database1")));
+    addCandidate(QDir(currentDir).filePath(QStringLiteral("../光谱数据库/database1")));
+    addCandidate(QStringLiteral("/Users/yhy/Desktop/地调中心项目/光谱数据库/database1"));
+
+    return dirs;
+}
 
 QRect clampTagRect(const QRect& desired, const QSize& bounds)
 {
@@ -348,12 +394,12 @@ void PixelPopup::showAt(const QPoint& globalPos, int x, int y)
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle("CoreScan Pro — 光谱匹配");
+    setWindowTitle(QStringLiteral("光谱匹配工具"));
     resize(1200, 760);
     setupUi();
     setupMenus();
     applyDarkTheme();
-    updateStatusBar(tr("就绪。请先加载光谱库。"));
+    loadBuiltInLibrary(false);
 }
 
 MainWindow::~MainWindow() = default;
@@ -403,10 +449,11 @@ void MainWindow::setupUi()
     rootLayout->setContentsMargins(6, 6, 6, 6);
     rootLayout->setSpacing(6);
 
-    // ── 左侧：Tab（ENVI | 光谱文件）──────────────────────────────────
+    // ── 左侧：页面区（隐藏页签，仅按操作自动切换）────────────────────
     m_tabWidget = new QTabWidget;
     setupEnviTab();
     setupSpectrumTab();
+    m_tabWidget->tabBar()->hide();
 
     // ── 右侧：库面板 + 匹配结果 ──────────────────────────────────────
     auto* rightWidget = new QWidget;
@@ -444,9 +491,9 @@ void MainWindow::setupUi()
 void MainWindow::setupMenus()
 {
     auto* fileMenu      = menuBar()->addMenu(tr("文件"));
-    auto* actOpenEnvi   = fileMenu->addAction(tr("打开 ENVI 文件 (.hdr)..."));
-    auto* actImportSpec = fileMenu->addAction(tr("导入光谱文件 (txt/csv)..."));
-    auto* actLoadLib    = fileMenu->addAction(tr("加载光谱库..."));
+    auto* actOpenEnvi   = fileMenu->addAction(tr("打开图像头文件..."));
+    auto* actImportSpec = fileMenu->addAction(tr("导入文本光谱文件..."));
+    auto* actLoadLib    = fileMenu->addAction(tr("刷新光谱库"));
     fileMenu->addSeparator();
     auto* actQuit = fileMenu->addAction(tr("退出"));
 
@@ -469,7 +516,7 @@ void MainWindow::setupEnviTab()
 
     // ── 顶部工具栏 ────────────────────────────────────────────────────
     auto* topRow = new QHBoxLayout;
-    topRow->addWidget(new QLabel(tr("显示波段:")));
+    topRow->addWidget(new QLabel(tr("波段显示:")));
     m_bandCombo = new QComboBox;
     m_bandCombo->setMinimumWidth(160);
     topRow->addWidget(m_bandCombo);
@@ -490,7 +537,7 @@ void MainWindow::setupEnviTab()
 
     // 占位文字（未加载时显示）
     auto* placeholder = m_enviScene->addText(
-        tr("未加载 ENVI 文件\n\n请使用 文件 → 打开 ENVI 文件 (.hdr)..."));
+        tr("未加载高光谱图像\n\n请使用 文件 → 打开图像头文件..."));
     placeholder->setDefaultTextColor(QColor("#8892b0"));
     placeholder->setPos(60, 160);
     m_enviScene->setSceneRect(0, 0, 600, 450);
@@ -508,7 +555,7 @@ void MainWindow::setupEnviTab()
         m_zoomLabel->setText(tr("缩放: %1%").arg(qRound(z * 100)));
     });
 
-    m_tabWidget->addTab(tab, tr("ENVI 图像"));
+    m_tabWidget->addTab(tab, tr("图像"));
 
     // ── PixelPopup ────────────────────────────────────────────────────
     m_pixelPopup = new PixelPopup(this);
@@ -545,7 +592,7 @@ void MainWindow::setupSpectrumTab()
     // 页 0：占位文字
     m_chartPlaceholder = new QLabel(
         tr("导入光谱文件后，数据将在此处显示。\n\n"
-           "请使用 文件 → 导入光谱文件 (txt/csv)..."));
+           "请使用 文件 → 导入文本光谱文件..."));
     m_chartPlaceholder->setAlignment(Qt::AlignCenter);
     m_chartPlaceholder->setStyleSheet(
         "background:#1e2030; color:#8892b0; border:1px solid #3a3f5c;");
@@ -583,18 +630,14 @@ void MainWindow::setupLibraryPanel()
     auto* layout = new QVBoxLayout(group);
     layout->setContentsMargins(6, 14, 6, 6);
 
-    m_libraryStatus = new QLabel(tr("未加载光谱库。"));
+    m_libraryStatus = new QLabel(tr("内置光谱库准备中。"));
     m_libraryStatus->setWordWrap(true);
     layout->addWidget(m_libraryStatus);
-
-    auto* loadBtn = new QPushButton(tr("加载光谱库..."));
-    layout->addWidget(loadBtn);
 
     m_libraryList = new QListWidget;
     m_libraryList->setAlternatingRowColors(true);
     layout->addWidget(m_libraryList);
 
-    connect(loadBtn, &QPushButton::clicked, this, &MainWindow::onLoadLibrary);
     connect(m_libraryList, &QListWidget::currentRowChanged,
             this, &MainWindow::onLibraryItemDoubleClicked);
 }
@@ -614,7 +657,7 @@ static bool parseSpectrumFile(const QString& path,
 {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        outErr = QObject::tr("无法打开文件: %1").arg(path);
+        outErr = QObject::tr("无法打开所选文件。");
         return false;
     }
     QTextStream ts(&f);
@@ -641,6 +684,75 @@ static bool parseSpectrumFile(const QString& path,
     return true;
 }
 
+bool MainWindow::loadBuiltInLibrary(bool showFailureDialog)
+{
+    auto& lib = SpectralLibrary::instance();
+    lib.clear();
+
+    QString libraryDir;
+    const QStringList fileNames = builtInLibraryFileNames();
+    for (const QString& candidateDir : builtInLibraryDirectories()) {
+        int existingFileCount = 0;
+        for (const QString& fileName : fileNames) {
+            if (QFileInfo::exists(QDir(candidateDir).filePath(fileName)))
+                ++existingFileCount;
+        }
+        if (existingFileCount > 0) {
+            libraryDir = candidateDir;
+            break;
+        }
+    }
+
+    if (libraryDir.isEmpty()) {
+        m_libraryList->clear();
+        m_libraryStatus->setText(tr("未找到内置光谱库目录。"));
+        updateStatusBar(tr("未找到内置光谱库。"));
+        if (showFailureDialog) {
+            QMessageBox::warning(
+                this,
+                tr("光谱库加载失败"),
+                tr("未找到内置光谱库目录，请确认“光谱数据库”文件夹中的文本光谱文件位置正确。"));
+        }
+        return false;
+    }
+
+    int loaded = 0;
+    int loadedFileCount = 0;
+    for (const QString& fileName : fileNames) {
+        const QString filePath = QDir(libraryDir).filePath(fileName);
+        if (!QFileInfo::exists(filePath))
+            continue;
+
+        loaded += lib.loadUSGSTxt(filePath, localizedLibrarySourceName(QFileInfo(filePath).completeBaseName()));
+        ++loadedFileCount;
+    }
+
+    m_libraryList->clear();
+    const auto& spectra = lib.spectra();
+    for (const auto& entry : spectra)
+        m_libraryList->addItem(entry.name);
+
+    if (loaded <= 0 || spectra.isEmpty()) {
+        m_libraryStatus->setText(tr("内置光谱库加载失败。"));
+        updateStatusBar(tr("内置光谱库加载失败。"));
+        if (showFailureDialog) {
+            QMessageBox::warning(
+                this,
+                tr("光谱库加载失败"),
+                tr("已找到光谱库目录，但没有读到有效的参考光谱。"));
+        }
+        return false;
+    }
+
+    m_libraryStatus->setText(
+        tr("内置光谱库已就绪，共 %1 条参考光谱。").arg(spectra.size()));
+    updateStatusBar(
+        tr("已载入内置光谱库：%1 个文件，%2 条参考光谱。")
+            .arg(loadedFileCount)
+            .arg(spectra.size()));
+    return true;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // File menu handlers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -648,15 +760,15 @@ static bool parseSpectrumFile(const QString& path,
 void MainWindow::onOpenEnvi()
 {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("打开 ENVI 头文件"), QString(),
-        tr("ENVI 头文件 (*.hdr);;所有文件 (*)"));
+        this, tr("打开图像头文件"), QString(),
+        tr("头文件 (*.hdr);;所有文件 (*)"));
     if (path.isEmpty()) return;
 
     try {
         auto ds = std::make_unique<EnviDataset>();
         if (!ds->load(path)) {
-            QMessageBox::critical(this, tr("打开 ENVI 失败"),
-                                  tr("无法加载: %1").arg(path));
+            QMessageBox::critical(this, tr("打开图像失败"),
+                                  tr("无法读取所选图像文件。"));
             return;
         }
         m_dataset = std::move(ds);
@@ -674,7 +786,7 @@ void MainWindow::onOpenEnvi()
         const auto& wls = meta.wavelengths;
         for (int b = 0; b < meta.bands; ++b) {
             QString label = (b < wls.size())
-                ? QString("%1 nm").arg(wls[b], 0, 'f', 1)
+                ? QString("%1 纳米").arg(wls[b], 0, 'f', 1)
                 : QString("波段 %1").arg(b + 1);
             m_bandCombo->addItem(label);
         }
@@ -682,20 +794,20 @@ void MainWindow::onOpenEnvi()
 
         onEnviBandChanged(0);
         m_tabWidget->setCurrentIndex(0);
-        updateStatusBar(tr("已加载: %1  [%2 × %3，%4 波段]")
-            .arg(QFileInfo(path).fileName())
+        updateStatusBar(tr("已加载高光谱图像 [%1 × %2，%3 波段]")
             .arg(meta.samples).arg(meta.lines).arg(meta.bands));
     } catch (const std::exception& ex) {
-        QMessageBox::critical(this, tr("打开 ENVI 失败"),
-                              QString::fromStdString(ex.what()));
+        Q_UNUSED(ex);
+        QMessageBox::critical(this, tr("打开图像失败"),
+                              tr("文件读取失败，请检查头文件和数据文件是否完整。"));
     }
 }
 
 void MainWindow::onImportSpectrum()
 {
     QString path = QFileDialog::getOpenFileName(
-        this, tr("导入光谱文件"), QString(),
-        tr("光谱文件 (*.txt *.csv);;所有文件 (*)"));
+        this, tr("导入文本光谱文件"), QString(),
+        tr("文本文件 (*.txt *.csv);;所有文件 (*)"));
     if (path.isEmpty()) return;
 
     QString err;
@@ -703,9 +815,9 @@ void MainWindow::onImportSpectrum()
         QMessageBox::warning(this, tr("导入失败"), err);
         return;
     }
-    m_importedLabel = QFileInfo(path).baseName();
+    m_importedLabel = tr("导入光谱");
     m_specFileLabel->setText(
-        tr("%1  [%2 个数据点，%.1f – %.1f nm]")
+        tr("%1  [%2 个数据点，%3 至 %4 纳米]")
         .arg(m_importedLabel)
         .arg(m_importedWl.size())
         .arg(m_importedWl.front())
@@ -722,50 +834,19 @@ void MainWindow::onImportSpectrum()
 
 void MainWindow::onLoadLibrary()
 {
-    QStringList paths = QFileDialog::getOpenFileNames(
-        this, tr("加载光谱库"), QString(),
-        tr("光谱文件 (*.txt *.csv);;所有文件 (*)"));
-    if (paths.isEmpty()) return;
-
-    auto* prog = new QProgressDialog(tr("正在加载光谱库..."), tr("取消"),
-                                     0, paths.size(), this);
-    prog->setWindowModality(Qt::WindowModal);
-    prog->show();
-    QApplication::processEvents();
-
-    int loaded = 0;
-    auto& lib = SpectralLibrary::instance();
-    for (int i = 0; i < paths.size(); ++i) {
-        prog->setValue(i);
-        QApplication::processEvents();
-        if (prog->wasCanceled()) break;
-        if (paths[i].endsWith(".csv", Qt::CaseInsensitive))
-            loaded += lib.loadCSV(paths[i]) ? 1 : 0;
-        else
-            loaded += lib.loadUSGSTxt(paths[i]);
-    }
-    prog->setValue(paths.size());
-    prog->deleteLater();
-
-    m_libraryList->clear();
-    const auto& spectra = lib.spectra();
-    for (const auto& e : spectra)
-        m_libraryList->addItem(e.name);
-    m_libraryStatus->setText(tr("已加载 %1 条参考光谱").arg(spectra.size()));
-    updateStatusBar(tr("光谱库: %1 条参考光谱").arg(spectra.size()));
+    loadBuiltInLibrary(true);
 }
 
 void MainWindow::onAbout()
 {
-    QMessageBox::about(this, tr("关于 CoreScan Pro — 光谱匹配"),
-        tr("<b>CoreScan Pro 光谱匹配工具</b><br><br>"
-           "从 CoreScan Pro 主程序提取的独立光谱分析模块。<br><br>"
-           "支持功能：<br>"
-           "&bull; ENVI 高光谱图像文件 (.hdr)<br>"
-           "&bull; 直接导入光谱文件 (txt / csv)<br>"
-           "&bull; SAM 粗筛 + FCLS 精解矿物匹配<br>"
-           "&bull; 连续统去除预处理<br><br>"
-           "基于 Qt6 &amp; Eigen3 构建。"));
+    QMessageBox::about(this, tr("关于本工具"),
+        tr("<b>光谱匹配工具</b><br><br>"
+           "用于高光谱图像点位分析、文本光谱导入和矿物参考谱对比。<br><br>"
+           "主要功能：<br>"
+           "&bull; 图像波段浏览与点位选取<br>"
+           "&bull; 内置矿物光谱库自动加载<br>"
+           "&bull; 点位光谱查看、保存与导出<br>"
+           "&bull; 光谱匹配结果联动展示"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -910,9 +991,9 @@ void MainWindow::onImportAnalysisFinished()
     showMatchResults(res.matches, res.wavelengths, res.spectrum);
 
     // 弹出 SpectrumDialog 显示完整光谱图 + 矿物匹配表
-    auto* dlg = new SpectrumDialog(0, 0, res.spectrum, res.wavelengths,
+    auto* dlg = new SpectrumDialog(-1, -1, res.spectrum, res.wavelengths,
                                    res.matches, false, this);
-    dlg->setWindowTitle(tr("光谱匹配 — %1").arg(m_importedLabel));
+    dlg->setWindowTitle(tr("导入光谱匹配结果"));
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }
@@ -984,7 +1065,7 @@ void MainWindow::updateInlineChart(const QVector<double>& wl,
     chart->addSeries(series);
 
     auto* axisX = new QValueAxis();
-    axisX->setTitleText(wl.isEmpty() ? tr("波段序号") : tr("波长 (nm)"));
+    axisX->setTitleText(wl.isEmpty() ? tr("波段序号") : tr("波长（纳米）"));
     axisX->setLabelFormat("%.0f");
     axisX->setTickCount(9);
     axisX->setGridLineColor(QColor("#2a2b3a"));
@@ -1009,10 +1090,12 @@ void MainWindow::updateInlineChart(const QVector<double>& wl,
 void MainWindow::onMatchResultClicked(int row)
 {
     if (row < 0 || m_lastWl.isEmpty()) return;
-    const int sample = m_lastResultHasPixel ? m_lastResultSample : 0;
-    const int line   = m_lastResultHasPixel ? m_lastResultLine : 0;
+    const int sample = m_lastResultHasPixel ? m_lastResultSample : -1;
+    const int line   = m_lastResultHasPixel ? m_lastResultLine : -1;
     auto* dlg = new SpectrumDialog(sample, line, m_lastSpectrum, m_lastWl,
                                    m_lastMatches, false, this);
+    if (!m_lastResultHasPixel)
+        dlg->setWindowTitle(tr("导入光谱匹配结果"));
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }

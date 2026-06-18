@@ -131,6 +131,7 @@ private:
     void setupSpectrumTab();
     void setupLibraryPanel();
     void applyDarkTheme();
+    bool loadBuiltInLibrary(bool showFailureDialog);
     void updateStatusBar(const QString& msg);
     void showMatchResults(const QVector<AnalysisDisplayEntry>& matches,
                           const QVector<double>& wl,

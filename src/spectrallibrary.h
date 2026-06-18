@@ -125,7 +125,7 @@ public:
     }
 
     // ── USGS ASCII Plot 格式（database1 的 TXT）───────────────────────
-    int loadUSGSTxt(const QString& path) {
+    int loadUSGSTxt(const QString& path, const QString& sourceName = QString()) {
         // ── 先在锁外解析文件（I/O 不持锁）──────────────────────────────
         QFile f(path);
         if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return 0;
@@ -186,7 +186,9 @@ public:
         };
 
         int added = 0;
-        QString srcName = QFileInfo(path).completeBaseName();
+        QString srcName = sourceName.isEmpty()
+            ? QFileInfo(path).completeBaseName()
+            : sourceName;
         QList<MineralSpectrum> newSpectra;
         for (int i = 1; i < names.size(); ++i) {
             if (cols[i].size() != wlCol.size()) continue;
