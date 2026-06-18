@@ -399,7 +399,7 @@ void PixelPopup::showAt(const QPoint& globalPos, int x, int y)
 MainWindow::MainWindow(QWidget* parent)
     : QMainWindow(parent)
 {
-    setWindowTitle(QStringLiteral("光谱匹配工具"));
+    setWindowTitle(QStringLiteral("岩心光谱智能解译系统"));
     resize(1200, 760);
     setupUi();
     setupMenus();
@@ -866,8 +866,8 @@ void MainWindow::onLoadLibrary()
 
 void MainWindow::onAbout()
 {
-    QMessageBox::about(this, tr("关于本工具"),
-        tr("<b>光谱匹配工具</b><br><br>"
+    QMessageBox::about(this, tr("关于本系统"),
+        tr("<b>岩心光谱智能解译系统</b><br><br>"
            "用于高光谱图像点位分析、文本光谱导入和矿物参考谱对比。<br><br>"
            "主要功能：<br>"
            "&bull; 图像波段浏览与点位选取<br>"

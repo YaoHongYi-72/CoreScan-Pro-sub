@@ -5,7 +5,7 @@
 int main(int argc, char* argv[])
 {
     QApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("光谱匹配工具"));
+    app.setApplicationName(QStringLiteral("岩心光谱智能解译系统"));
     app.setApplicationVersion(QStringLiteral(APP_VERSION));
     app.setOrganizationName(QStringLiteral("地调中心"));
 

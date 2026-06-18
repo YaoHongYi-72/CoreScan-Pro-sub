@@ -1,16 +1,16 @@
-# CoreScan Pro — Spectral Matching Tool
+# 岩心光谱智能解译系统
 
 [![Windows Build](https://github.com/YaoHongYi-72/CoreScan-Pro-sub/actions/workflows/windows-build.yml/badge.svg)](https://github.com/YaoHongYi-72/CoreScan-Pro-sub/actions/workflows/windows-build.yml)
 
-A standalone spectral mineral-matching application extracted from [CoreScan Pro](https://github.com/YaoHongYi-72/CoreScan-Pro-sub).
-Supports ENVI hyperspectral images and direct spectrum file import.
+面向岩心高光谱数据的智能解译与矿物光谱匹配工具，
+支持高光谱图像浏览、点位光谱分析、文本光谱导入和内置光谱库比对。
 
 ---
 
 ## Download (Windows)
 
-Go to the [Releases](https://github.com/YaoHongYi-72/CoreScan-Pro-sub/releases) page and download the latest `SpectralMatcher-Setup-vX.Y.Z.exe` installer.
-Run the installer and launch `SpectralMatcher` from the desktop shortcut after setup completes.
+Go to the [Releases](https://github.com/YaoHongYi-72/CoreScan-Pro-sub/releases) page and download the latest `岩心光谱智能解译系统-安装包-vX.Y.Z.exe` installer.
+Run the installer and launch `岩心光谱智能解译系统` from the desktop shortcut after setup completes.
 
 ---
 

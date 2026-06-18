@@ -425,7 +425,7 @@ QString EnviDataset::createMockEnviFile(const QString& tmpDir)
     if (!hdr.open(QIODevice::WriteOnly | QIODevice::Text)) return {};
     QTextStream out(&hdr);
     out << "ENVI\n"
-        << "description = { CoreScan Pro mock dataset }\n"
+        << "description = { 岩心光谱智能解译系统 mock dataset }\n"
         << "samples = "    << S << "\n"
         << "lines = "      << L << "\n"
         << "bands = "      << B << "\n"

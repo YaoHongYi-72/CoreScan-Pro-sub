@@ -1,10 +1,14 @@
 cmake_minimum_required(VERSION 3.21)
-project(SpectralMatcher VERSION 1.1.0 LANGUAGES CXX)
+project(岩心光谱智能解译系统 VERSION 1.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
+
+set(APP_TARGET_NAME core_spectrum_interpretation_app)
+set(APP_DISPLAY_NAME "岩心光谱智能解译系统")
+set(APP_EXECUTABLE_NAME "${APP_DISPLAY_NAME}")
 
 # ---------------------------------------------------------------------------
 # Qt6
@@ -69,21 +73,21 @@ set(SOURCES
 set(SPECTRAL_LIBRARY_DIR "${CMAKE_SOURCE_DIR}/resources/光谱数据库")
 
 if(WIN32)
-    qt_add_executable(SpectralMatcher WIN32 ${SOURCES})
+    qt_add_executable(${APP_TARGET_NAME} WIN32 ${SOURCES})
 else()
-    qt_add_executable(SpectralMatcher ${SOURCES})
+    qt_add_executable(${APP_TARGET_NAME} ${SOURCES})
 endif()
 
-target_include_directories(SpectralMatcher PRIVATE
+target_include_directories(${APP_TARGET_NAME} PRIVATE
     src
     ${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/include
 )
 
-target_compile_definitions(SpectralMatcher PRIVATE
+target_compile_definitions(${APP_TARGET_NAME} PRIVATE
     APP_VERSION="${PROJECT_VERSION}"
 )
 
-target_link_libraries(SpectralMatcher PRIVATE
+target_link_libraries(${APP_TARGET_NAME} PRIVATE
     Qt6::Core
     Qt6::Widgets
     Qt6::Charts
@@ -92,13 +96,17 @@ target_link_libraries(SpectralMatcher PRIVATE
     osqp::osqp
 )
 
+set_target_properties(${APP_TARGET_NAME} PROPERTIES
+    OUTPUT_NAME "${APP_EXECUTABLE_NAME}"
+)
+
 if(EXISTS "${SPECTRAL_LIBRARY_DIR}")
-    add_custom_command(TARGET SpectralMatcher POST_BUILD
+    add_custom_command(TARGET ${APP_TARGET_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
-                "$<TARGET_FILE_DIR:SpectralMatcher>/光谱数据库"
+                "$<TARGET_FILE_DIR:${APP_TARGET_NAME}>/光谱数据库"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${SPECTRAL_LIBRARY_DIR}"
-                "$<TARGET_FILE_DIR:SpectralMatcher>/光谱数据库"
+                "$<TARGET_FILE_DIR:${APP_TARGET_NAME}>/光谱数据库"
         COMMENT "Copying built-in spectral library..."
     )
 endif()
@@ -109,11 +117,11 @@ endif()
 if(WIN32)
     find_program(WINDEPLOYQT windeployqt HINTS ${Qt6_DIR}/../../../bin)
     if(WINDEPLOYQT)
-        add_custom_command(TARGET SpectralMatcher POST_BUILD
+        add_custom_command(TARGET ${APP_TARGET_NAME} POST_BUILD
             COMMAND ${WINDEPLOYQT}
                 --no-translations
                 --no-system-d3d-compiler
-                $<TARGET_FILE:SpectralMatcher>
+                $<TARGET_FILE:${APP_TARGET_NAME}>
             COMMENT "Running windeployqt..."
         )
     endif()
@@ -122,7 +130,7 @@ endif()
 # ---------------------------------------------------------------------------
 # Install
 # ---------------------------------------------------------------------------
-install(TARGETS SpectralMatcher DESTINATION .)
+install(TARGETS ${APP_TARGET_NAME} DESTINATION .)
 if(EXISTS "${SPECTRAL_LIBRARY_DIR}")
     install(DIRECTORY "${SPECTRAL_LIBRARY_DIR}/" DESTINATION "光谱数据库")
 endif()
