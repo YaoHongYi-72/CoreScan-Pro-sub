@@ -733,8 +733,7 @@ bool MainWindow::loadBuiltInLibrary(bool showFailureDialog)
     int loadedFileCount = 0;
     for (const QString& fileName : fileNames) {
         const QString filePath = QDir(libraryDir).filePath(fileName);
-        const QString sourceName =
-            localizedLibrarySourceName(QFileInfo(filePath).completeBaseName());
+        const QString sourceName = QFileInfo(filePath).completeBaseName();
 
         LibraryFileSummary summary;
         summary.title = sourceName;
@@ -748,25 +747,9 @@ bool MainWindow::loadBuiltInLibrary(bool showFailureDialog)
         summaries.append(summary);
     }
 
-    m_libraryList->clear();
-    for (const LibraryFileSummary& summary : summaries) {
-        QString text;
-        if (!summary.exists) {
-            text = tr("%1  |  %2  |  未找到文件")
-                       .arg(summary.title, summary.fileName);
-        } else if (summary.spectraCount <= 0) {
-            text = tr("%1  |  %2  |  未读到有效光谱")
-                       .arg(summary.title, summary.fileName);
-        } else {
-            text = tr("%1  |  %2  |  %3 条光谱")
-                       .arg(summary.title, summary.fileName)
-                       .arg(summary.spectraCount);
-        }
-        m_libraryList->addItem(text);
-    }
-
     const auto& spectra = lib.spectra();
     if (loaded <= 0 || spectra.isEmpty()) {
+        m_libraryList->clear();
         m_libraryStatus->setText(tr("内置光谱库加载失败。"));
         updateStatusBar(tr("内置光谱库加载失败。"));
         if (showFailureDialog) {
@@ -776,6 +759,14 @@ bool MainWindow::loadBuiltInLibrary(bool showFailureDialog)
                 tr("已找到光谱库目录，但没有读到有效的参考光谱。"));
         }
         return false;
+    }
+
+    m_libraryList->clear();
+    for (const MineralSpectrum& entry : spectra) {
+        auto* item = new QListWidgetItem(
+            QStringLiteral("● %1  [%2]").arg(entry.name, entry.source));
+        item->setForeground(entry.color);
+        m_libraryList->addItem(item);
     }
 
     m_libraryStatus->setText(

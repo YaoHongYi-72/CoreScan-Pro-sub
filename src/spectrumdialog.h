@@ -92,7 +92,7 @@ public:
 
         m_axisAutoBtn = new QPushButton("自动纵轴");
         m_axisAutoBtn->setCheckable(true);
-        m_axisAutoBtn->setChecked(false);
+        m_axisAutoBtn->setChecked(true);
         m_axisAutoBtn->setToolTip(
             "关闭：纵轴锁定在当前光谱范围\n"
             "开启：纵轴自动扩展，以完整显示叠加参考谱");
@@ -165,6 +165,7 @@ public:
                 this, [this](bool){ updateAxisRanges(); });
         connect(m_pinTopBtn, &QPushButton::toggled,
                 this, [this](bool checked){ applyStayOnTop(checked); });
+        updateAxisRanges();
 
         // ── 矿物匹配结果表（带复选框）────────────────────────────────
         if (!entries.isEmpty()) {
